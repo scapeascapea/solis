@@ -40,7 +40,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     // Check MetaMask
     if (window.ethereum?.isMetaMask) {
       try {
-        const accounts = await window.ethereum.request({ method: "eth_accounts" });
+        const accounts = (await window.ethereum.request({ method: "eth_accounts" })) as string[];
         if (accounts.length > 0) {
           setWalletAddress(accounts[0]);
           setWalletConnected(true);
@@ -74,9 +74,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const accounts = await window.ethereum.request({
+      const accounts = (await window.ethereum.request({
         method: "eth_requestAccounts",
-      });
+      })) as string[];
       setWalletAddress(accounts[0]);
       setWalletConnected(true);
       setWalletType("metamask");
