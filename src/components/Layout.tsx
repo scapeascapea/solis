@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Wallet, LogOut } from "lucide-react";
+import { Menu, X, Eye, Wallet, LogOut } from "lucide-react";
 
 const NAV_LINKS = [
   { label: "Home", path: "/" },
@@ -14,7 +15,91 @@ const NAV_LINKS = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string>("");
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const [walletType, setWalletType] = useState<"phantom" | "metamask" | null>(null);
   const location = useLocation();
+
+// Check if wallet is already connected on mount
+  useEffect(() => {
+    checkWalletConnection();
+  }, []);
+
+  const checkWalletConnection = async () => {
+    // Check Phantom
+    if (window.solana?.isPhantom) {
+      try {
+        const response = await window.solana.connect({ onlyIfTrusted: true });
+        setWalletAddress(response.publicKey.toString());
+        setWalletConnected(true);
+        setWalletType("phantom");
+      } catch (err) {
+        // Not connected
+      }
+    }
+    // Check MetaMask
+    if (window.ethereum?.isMetaMask) {
+      try {
+        const accounts = await window.ethereum.request({ method: "eth_accounts" });
+        if (accounts.length > 0) {
+          setWalletAddress(accounts[0]);
+          setWalletConnected(true);
+          setWalletType("metamask");
+        }
+      } catch (err) {
+        // Not connected
+      }
+    }
+  };
+
+  const connectPhantom = async () => {
+    if (!window.solana?.isPhantom) {
+      window.open("https://phantom.app/", "_blank");
+      return;
+    }
+    try {
+      const response = await window.solana.connect();
+      setWalletAddress(response.publicKey.toString());
+      setWalletConnected(true);
+      setWalletType("phantom");
+      setShowWalletMenu(false);
+    } catch (err) {
+      console.error("Failed to connect Phantom:", err);
+    }
+  };
+
+  const connectMetaMask = async () => {
+    if (!window.ethereum?.isMetaMask) {
+      window.open("https://metamask.io/", "_blank");
+      return;
+    }
+    try {
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+      setWalletAddress(accounts[0]);
+      setWalletConnected(true);
+      setWalletType("metamask");
+      setShowWalletMenu(false);
+    } catch (err) {
+      console.error("Failed to connect MetaMask:", err);
+    }
+  };
+
+  const disconnect = () => {
+    setWalletConnected(false);
+    setWalletAddress("");
+    setWalletType(null);
+    setShowWalletMenu(false);
+    if (window.solana?.disconnect) {
+      window.solana.disconnect();
+    }
+  };
+
+  const truncateAddress = (addr: string) => {
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50);
@@ -96,13 +181,73 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Anonymous badge */}
-        <div className="hidden lg:flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-amber/10 border border-amber/20 rounded-full px-4 py-1.5">
+{/* Right side: Anonymous badge + Wallet button */}
+        <div className="flex items-center gap-4">
+          <div className="hidden lg:flex items-center gap-2 bg-amber/10 border border-amber/20 rounded-full px-4 py-1.5">
             <Eye size={14} className="text-amber" />
             <span className="text-xs font-semibold tracking-wide text-amber uppercase">
               No KYC · Fully Anonymous
             </span>
+          </div>
+
+          {/* Wallet button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowWalletMenu(!showWalletMenu)}
+              className="flex items-center gap-2 bg-amber/10 border border-amber/20 hover:border-amber/40 rounded-full px-4 py-2 transition-all duration-200"
+            >
+              <Wallet size={16} className="text-amber" />
+              <span className="text-sm font-semibold text-white">
+                {walletConnected ? truncateAddress(walletAddress) : "Connect"}
+              </span>
+            </button>
+
+            {/* Wallet dropdown menu */}
+            <AnimatePresence>
+              {showWalletMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute right-0 mt-2 w-48 bg-black/95 border border-white/10 rounded-xl backdrop-blur-xl z-50 overflow-hidden"
+                >
+                  {!walletConnected ? (
+                    <>
+                      <button
+                        onClick={connectPhantom}
+                        className="w-full px-4 py-3 text-left text-white hover:bg-amber/10 transition-colors flex items-center gap-2 border-b border-white/10"
+                      >
+                        <Wallet size={16} className="text-amber" />
+                        <span className="font-semibold">Phantom</span>
+                      </button>
+                      <button
+                        onClick={connectMetaMask}
+                        className="w-full px-4 py-3 text-left text-white hover:bg-amber/10 transition-colors flex items-center gap-2"
+                      >
+                        <Wallet size={16} className="text-amber" />
+                        <span className="font-semibold">MetaMask</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-4 py-2 text-xs text-white/50 border-b border-white/10">
+                        {walletType === "phantom" ? "Phantom" : "MetaMask"}
+                      </div>
+                      <div className="px-4 py-2 text-xs text-white break-all">
+                        {walletAddress}
+                      </div>
+                      <button
+                        onClick={disconnect}
+                        className="w-full px-4 py-3 text-left text-red-400 hover:bg-red-400/10 transition-colors flex items-center gap-2 border-t border-white/10"
+                      >
+                        <LogOut size={16} />
+                        <span className="font-semibold">Disconnect</span>
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -146,8 +291,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* Main content */}
+{/* Main content */}
       <main className="relative z-10 pt-[72px]">{children}</main>
     </div>
   );
+}
+
+// Type definitions for window objects
+declare global {
+  interface Window {
+    solana?: {
+      isPhantom?: boolean;
+      connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toString(): string } }>;
+      disconnect(): Promise<void>;
+    };
+    ethereum?: {
+      isMetaMask?: boolean;
+      request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+    };
+  }
 }
