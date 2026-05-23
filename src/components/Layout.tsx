@@ -1,7 +1,7 @@
+import { Menu, X, Eye, Wallet, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Eye, Wallet, LogOut } from "lucide-react";
 
 const NAV_LINKS = [
   { label: "Home", path: "/" },
