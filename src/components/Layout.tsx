@@ -190,10 +190,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
 
-          {/* Wallet button */}
+{/* Wallet button */}
           <div className="relative">
             <button
-              onClick={() => setShowWalletMenu(!showWalletMenu)}
+              onClick={() => {
+                console.log("Button clicked");
+                setShowWalletMenu(!showWalletMenu);
+              }}
               className="flex items-center gap-2 bg-amber/10 border border-amber/20 hover:border-amber/40 rounded-full px-4 py-2 transition-all duration-200"
             >
               <Wallet size={16} className="text-amber" />
