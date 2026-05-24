@@ -116,7 +116,7 @@ export default function SwapCard() {
         );
 
         const { Connection } = await import("@solana/web3.js");
-        const connection = new Connection("https://api.mainnet-beta.solana.com");
+        const connection = new Connection("https://rpc.ankr.com/solana");
 
         const signedTx = await window.solana.signTransaction(transaction);
         const txid = await connection.sendRawTransaction(signedTx.serialize());
