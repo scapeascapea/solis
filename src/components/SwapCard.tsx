@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ArrowUpDown, Settings, RefreshCw } from "lucide-react";
+import { ChevronDown, ArrowUpDown, Settings, RefreshCw, Loader2 } from "lucide-react";
 import { SUPPORTED_CRYPTOS } from "@/hooks/useCryptoPrices";
 import CryptoIcon from "./CryptoIcon";
 
@@ -15,12 +15,31 @@ const POPULAR_PAIRS = [
   { from: "TRX", to: "USDC" },
 ];
 
+// Jupiter token mint addresses for Solana tokens
+const SOLANA_MINTS: Record<string, string> = {
+  SOL: "So11111111111111111111111111111111111111112",
+  USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+  RAY: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+  BONK: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+};
+
+declare global {
+  interface Window {
+    Jupiter: {
+      init(config: Record<string, unknown>): void;
+    };
+  }
+}
+
 export default function SwapCard() {
   const [fromCoin, setFromCoin] = useState("SOL");
   const [toCoin, setToCoin] = useState("USDC");
   const [fromAmount, setFromAmount] = useState("1.5");
   const [showFromDropdown, setShowFromDropdown] = useState(false);
   const [showToDropdown, setShowToDropdown] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [swapStatus, setSwapStatus] = useState<string | null>(null);
 
   const fromCrypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === fromCoin);
   const toCrypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === toCoin);
@@ -33,6 +52,97 @@ export default function SwapCard() {
   const handleSwap = () => {
     setFromCoin(toCoin);
     setToCoin(fromCoin);
+  };
+
+  const isSolanaToken = (symbol: string) => SOLANA_MINTS[symbol] !== undefined;
+
+  const handleExecuteSwap = async () => {
+    // Check if both tokens are on Solana
+    if (isSolanaToken(fromCoin) && isSolanaToken(toCoin)) {
+      // Use Jupiter for Solana swaps
+      if (!window.solana?.isPhantom) {
+        setSwapStatus("Please install Phantom wallet for Solana swaps.");
+        return;
+      }
+
+      try {
+        setIsSwapping(true);
+        setSwapStatus("Connecting to Jupiter...");
+
+        const fromMint = SOLANA_MINTS[fromCoin];
+        const toMint = SOLANA_MINTS[toCoin];
+        const amount = Math.floor(parseFloat(fromAmount) * 1e9); // Convert to lamports
+
+        // Get quote from Jupiter
+        const quoteRes = await fetch(
+          `https://quote-api.jup.ag/v6/quote?inputMint=${fromMint}&outputMint=${toMint}&amount=${amount}&slippageBps=50`
+        );
+        const quote = await quoteRes.json();
+
+        if (!quote || quote.error) {
+          setSwapStatus("Failed to get swap quote. Try again.");
+          return;
+        }
+
+        setSwapStatus("Getting swap transaction...");
+
+        // Connect wallet
+        const wallet = await window.solana.connect();
+        const userPublicKey = wallet.publicKey.toString();
+
+        // Get swap transaction
+        const swapRes = await fetch("https://quote-api.jup.ag/v6/swap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quoteResponse: quote,
+            userPublicKey,
+            wrapAndUnwrapSol: true,
+          }),
+        });
+        const swapData = await swapRes.json();
+
+        if (!swapData.swapTransaction) {
+          setSwapStatus("Failed to create transaction. Try again.");
+          return;
+        }
+
+        setSwapStatus("Please approve in your wallet...");
+
+        // Sign and send transaction
+        const { VersionedTransaction } = await import("@solana/web3.js");
+        const transaction = VersionedTransaction.deserialize(
+          Buffer.from(swapData.swapTransaction, "base64")
+        );
+
+        const { Connection } = await import("@solana/web3.js");
+        const connection = new Connection("https://api.mainnet-beta.solana.com");
+
+        const signedTx = await window.solana.signTransaction(transaction);
+        const txid = await connection.sendRawTransaction(signedTx.serialize());
+
+        setSwapStatus(`Swap successful! TX: ${txid.slice(0, 8)}...`);
+      } catch (err: unknown) {
+        const error = err as Error;
+        if (error.message?.includes("rejected")) {
+          setSwapStatus("Swap cancelled.");
+        } else {
+          setSwapStatus("Swap failed. Try again.");
+        }
+      } finally {
+        setIsSwapping(false);
+      }
+    } else {
+      // Non-Solana tokens — redirect to ChangeNOW
+      const url = `https://changenow.io/?from=${fromCoin.toLowerCase()}&to=${toCoin.toLowerCase()}&amount=${fromAmount}`;
+      window.open(url, "_blank");
+    }
+  };
+
+  const getButtonText = () => {
+    if (isSwapping) return swapStatus || "Swapping...";
+    if (!isSolanaToken(fromCoin) || !isSolanaToken(toCoin)) return `Swap via ChangeNOW`;
+    return "Swap Now";
   };
 
   return (
@@ -94,9 +204,7 @@ export default function SwapCard() {
               className="flex items-center gap-2 bg-white/[0.06] px-3 py-2 rounded-full hover:bg-white/10 transition-colors"
             >
               <CryptoIcon symbol={fromCoin} size={22} />
-              <span className="text-white font-semibold text-sm">
-                {fromCoin}
-              </span>
+              <span className="text-white font-semibold text-sm">{fromCoin}</span>
               <ChevronDown size={14} className="text-[#737373]" />
             </button>
             {showFromDropdown && (
@@ -109,16 +217,12 @@ export default function SwapCard() {
                       setShowFromDropdown(false);
                     }}
                     className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm hover:bg-white/[0.06] transition-colors ${
-                      fromCoin === c.symbol
-                        ? "text-amber"
-                        : "text-white"
+                      fromCoin === c.symbol ? "text-amber" : "text-white"
                     }`}
                   >
                     <CryptoIcon symbol={c.symbol} size={18} />
                     <span className="font-medium">{c.symbol}</span>
-                    <span className="text-[#737373] ml-auto text-xs">
-                      {c.name}
-                    </span>
+                    <span className="text-[#737373] ml-auto text-xs">{c.name}</span>
                   </button>
                 ))}
               </div>
@@ -174,9 +278,7 @@ export default function SwapCard() {
                   >
                     <CryptoIcon symbol={c.symbol} size={18} />
                     <span className="font-medium">{c.symbol}</span>
-                    <span className="text-[#737373] ml-auto text-xs">
-                      {c.name}
-                    </span>
+                    <span className="text-[#737373] ml-auto text-xs">{c.name}</span>
                   </button>
                 ))}
               </div>
@@ -196,17 +298,32 @@ export default function SwapCard() {
         <span className="text-sm text-[#737373]">Floating rate</span>
       </div>
 
+      {/* Status message */}
+      {swapStatus && (
+        <div className="flex items-center gap-2 mb-3 py-2 px-3 bg-amber/[0.05] rounded-lg border border-amber/10">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse-dot" />
+          <span className="text-xs text-amber/80">{swapStatus}</span>
+        </div>
+      )}
+
       {/* Anonymous note */}
-      <div className="flex items-center gap-2 mb-3 py-2 px-3 bg-amber/[0.05] rounded-lg border border-amber/10">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse-dot" />
-        <span className="text-xs text-amber/80">
-          No account required. Connect wallet to swap instantly.
-        </span>
-      </div>
+      {!swapStatus && (
+        <div className="flex items-center gap-2 mb-3 py-2 px-3 bg-amber/[0.05] rounded-lg border border-amber/10">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse-dot" />
+          <span className="text-xs text-amber/80">
+            No account required. Connect wallet to swap instantly.
+          </span>
+        </div>
+      )}
 
       {/* CTA */}
-      <button className="w-full bg-amber text-black font-semibold py-3.5 rounded-xl hover:bg-amber-light hover:shadow-glow-amber-strong transition-all duration-200 mt-1">
-        Connect Wallet
+      <button
+        onClick={handleExecuteSwap}
+        disabled={isSwapping}
+        className="w-full bg-amber text-black font-semibold py-3.5 rounded-xl hover:bg-amber-light hover:shadow-glow-amber-strong transition-all duration-200 mt-1 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+      >
+        {isSwapping && <Loader2 size={16} className="animate-spin" />}
+        {getButtonText()}
       </button>
     </div>
   );
