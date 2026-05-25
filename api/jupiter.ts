@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6';
+const JUPITER_QUOTE_API = 'https://lite.jup.ag/v1';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Allow CORS from your site
